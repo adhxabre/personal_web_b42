@@ -28,30 +28,32 @@ func main() {
 	route.HandleFunc("/contact", contact).Methods("GET")
 	route.HandleFunc("/add-blog", addBlog).Methods("POST")
 	route.HandleFunc("/add-blog", formAddBlog).Methods("GET")
-	route.HandleFunc("/delete-blog/{index}", deleteBlog).Methods("GET")
+	route.HandleFunc("/delete-blog/{id}", deleteBlog).Methods("GET")
 
 	fmt.Println("Server berjalan pada port 5000")
 	http.ListenAndServe("localhost:5000", route)
 }
 
 type Blog struct {
-	ID        int
-	Title     string
-	Content   string
-	Image     string
-	Post_date time.Time
-	Author    string
+	ID          int
+	Title       string
+	Content     string
+	Image       string
+	Post_date   time.Time
+	Format_date string
+	Author      string
 }
 
-// var blogs = []
-var blogs = []Blog{
-	{
-		Title:   "Samsul Rijal",
-		Content: "Hallo Dumbways",
-		// Post_date: "24 November 2022",
-		Author: "Samsul Rijal",
-	},
-}
+// var blogs = []Blog{}
+
+// var blogs = []Blog{
+// 	{
+// 		Title:   "Samsul Rijal",
+// 		Content: "Hallo Dumbways",
+// 		// Post_date: "24 November 2022",
+// 		Author: "Samsul Rijal",
+// 	},
+// }
 
 func addBlog(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
@@ -63,15 +65,22 @@ func addBlog(w http.ResponseWriter, r *http.Request) {
 	title := r.PostForm.Get("title")
 	content := r.PostForm.Get("content")
 
-	var newBlog = Blog{
-		Title:   title,
-		Content: content,
-		// Post_date: "24 November 2022",
-		Author: "Samsul Rijal",
+	// var newBlog = Blog{
+	// 	Title:   title,
+	// 	Content: content,
+	// 	// Post_date: "24 November 2022",
+	// 	Author: "Samsul Rijal",
+	// }
+
+	_, err = connection.Conn.Exec(context.Background(), "INSERT INTO tb_blog(title, content, image) VALUES ($1, $2, 'images.png')", title, content)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("message : " + err.Error()))
+		return
 	}
 
 	// blogs.push(newBlog)
-	blogs = append(blogs, newBlog)
+	// blogs = append(blogs, newBlog)
 
 	http.Redirect(w, r, "/blog", http.StatusMovedPermanently)
 }
@@ -86,7 +95,7 @@ func blog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataBlog, errQuery := connection.Conn.Query(context.Background(), "SELECT id, title, content, post_date  FROM tb_blog")
+	dataBlog, errQuery := connection.Conn.Query(context.Background(), "SELECT id, title, content, post_date FROM tb_blog")
 	if errQuery != nil {
 		fmt.Println("Message : " + errQuery.Error())
 		return
@@ -102,6 +111,9 @@ func blog(w http.ResponseWriter, r *http.Request) {
 			fmt.Println("Message : " + err.Error())
 			return
 		}
+
+		each.Author = "Abel Dustin"
+		each.Format_date = each.Post_date.Format("2 January 2006")
 
 		result = append(result, each)
 	}
@@ -157,16 +169,30 @@ func blogDetail(w http.ResponseWriter, r *http.Request) {
 	// }
 	var BlogDetail = Blog{}
 
-	for index, data := range blogs {
-		if index == id {
-			BlogDetail = Blog{
-				Title:     data.Title,
-				Content:   data.Content,
-				Post_date: data.Post_date,
-				Author:    data.Author,
-			}
-		}
+	// for index, data := range blogs {
+	// 	if index == id {
+	// 		BlogDetail = Blog{
+	// 			Title:     data.Title,
+	// 			Content:   data.Content,
+	// 			Post_date: data.Post_date,
+	// 			Author:    data.Author,
+	// 		}
+	// 	}
+	// }
+
+	// add code
+	err = connection.Conn.QueryRow(context.Background(), "SELECT id, title, image, content, post_date FROM tb_blog WHERE id=$1", id).Scan(
+		&BlogDetail.ID, &BlogDetail.Title, &BlogDetail.Image, &BlogDetail.Content, &BlogDetail.Post_date,
+	)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("message : " + err.Error()))
+		return
 	}
+
+	BlogDetail.Author = "Abel Dustin"
+	BlogDetail.Format_date = BlogDetail.Post_date.Format("2 January 2006")
 
 	fmt.Println(BlogDetail)
 
@@ -179,12 +205,18 @@ func blogDetail(w http.ResponseWriter, r *http.Request) {
 
 func deleteBlog(w http.ResponseWriter, r *http.Request) {
 
-	index, _ := strconv.Atoi(mux.Vars(r)["index"])
+	id, _ := strconv.Atoi(mux.Vars(r)["id"])
 	// fmt.Println(index)
 
-	blogs = append(blogs[:index], blogs[index+1:]...)
+	// blogs = append(blogs[:index], blogs[index+1:]...)
+	_, err := connection.Conn.Exec(context.Background(), "DELETE FROM tb_blog WHERE id=$1", id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("message : " + err.Error()))
+		return
+	}
 
-	http.Redirect(w, r, "/blog", http.StatusFound)
+	http.Redirect(w, r, "/blog", http.StatusMovedPermanently)
 }
 
 func contact(w http.ResponseWriter, r *http.Request) {
