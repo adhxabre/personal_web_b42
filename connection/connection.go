@@ -12,7 +12,7 @@ var Conn *pgx.Conn
 
 func DatabaseConnect() {
 	// urlExample := "postgres://username:password@localhost:5432/database_name"
-	databaseUrl := "postgres://postgres:123@localhost:5432/personal_web_b41"
+	databaseUrl := "postgres://postgres:123@localhost:5432/personal_web_42"
 
 	var err error
 	Conn, err = pgx.Connect(context.Background(), databaseUrl)
