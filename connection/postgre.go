@@ -12,7 +12,7 @@ var Conn *pgx.Conn
 
 func DatabaseConnect() {
 	var err error
-	databaseUrl := "postgres://postgres:root@localhost:5432/db_blog"
+	databaseUrl := "postgres://postgres:123@localhost:5432/personal_web_42"
 	Conn, err = pgx.Connect(context.Background(), databaseUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)

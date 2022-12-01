@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"golang-c2/connection"
+	"golang-c2/middleware"
 	"html/template"
 	"log"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 )
 
 type MetaData struct {
+	Id        int
 	Title     string
 	IsLogin   bool
 	UserName  string
@@ -53,6 +55,7 @@ func main() {
 
 	// static folder
 	route.PathPrefix("/public/").Handler(http.StripPrefix("/public/", http.FileServer(http.Dir("./public/"))))
+	route.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads/"))))
 
 	// routing
 	route.HandleFunc("/", helloWorld).Methods("GET")
@@ -60,7 +63,7 @@ func main() {
 	route.HandleFunc("/blog", blogs).Methods("GET")
 	route.HandleFunc("/blog/{id}", blogDetail).Methods("GET")
 	route.HandleFunc("/add-blog", formBlog).Methods("GET")
-	route.HandleFunc("/blog", addBlog).Methods("POST")
+	route.HandleFunc("/blog", middleware.UploadFile(addBlog)).Methods("POST")
 	route.HandleFunc("/delete-blog/{id}", deleteBlog).Methods("GET")
 
 	route.HandleFunc("/contact-me", contactMe).Methods("GET")
@@ -139,21 +142,22 @@ func blogs(w http.ResponseWriter, r *http.Request) {
 	} else {
 		Data.IsLogin = session.Values["IsLogin"].(bool)
 		Data.UserName = session.Values["Name"].(string)
+		Data.Id = session.Values["Id"].(int)
 	}
 
-	rows, _ := connection.Conn.Query(context.Background(), "SELECT id, title, image, content, post_at FROM blog ORDER BY id DESC")
+	rows, _ := connection.Conn.Query(context.Background(), "SELECT tb_blog.id, title, images, content, post_date, tb_user.name as author FROM tb_blog LEFT JOIN tb_user ON tb_blog.author_id = tb_user.id ORDER BY id DESC")
 
 	var result []Blog
 	for rows.Next() {
 		var each = Blog{}
 
-		var err = rows.Scan(&each.Id, &each.Title, &each.Image, &each.Content, &each.Post_date)
+		var err = rows.Scan(&each.Id, &each.Title, &each.Image, &each.Content, &each.Post_date, &each.Author)
 		if err != nil {
 			fmt.Println(err.Error())
 			return
 		}
 
-		each.Author = "Ilham Fathullah"
+		// each.Author = "Ilham Fathullah"
 		each.Format_date = each.Post_date.Format("2 January 2006")
 
 		if session.Values["IsLogin"] != true {
@@ -187,15 +191,15 @@ func blogDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	BlogDetail := Blog{}
-	err = connection.Conn.QueryRow(context.Background(), "SELECT id, title, image, content, post_at FROM blog WHERE id=$1", id).Scan(
-		&BlogDetail.Id, &BlogDetail.Title, &BlogDetail.Image, &BlogDetail.Content, &BlogDetail.Post_date)
+	err = connection.Conn.QueryRow(context.Background(), "SELECT tb_blog.id, title, images, content, post_date, tb_user.name as author FROM tb_blog LEFT JOIN tb_user ON tb_blog.author_id = tb_user.id WHERE tb_blog.id=$1", id).Scan(
+		&BlogDetail.Id, &BlogDetail.Title, &BlogDetail.Image, &BlogDetail.Content, &BlogDetail.Post_date, &BlogDetail.Author)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("message : " + err.Error()))
 		return
 	}
 
-	BlogDetail.Author = "Ilham Fathullah"
+	// BlogDetail.Author = "Ilham Fathullah"
 	BlogDetail.Format_date = BlogDetail.Post_date.Format("2 January 2006")
 
 	resp := map[string]interface{}{
@@ -230,7 +234,15 @@ func addBlog(w http.ResponseWriter, r *http.Request) {
 	title := r.PostForm.Get("title")
 	content := r.PostForm.Get("content")
 
-	_, err = connection.Conn.Exec(context.Background(), "INSERT INTO blog(title, content,image) VALUES ($1,$2,'image.png')", title, content)
+	dataContext := r.Context().Value("dataFile")
+	image := dataContext.(string)
+
+	var store = sessions.NewCookieStore([]byte("SESSION_ID"))
+	session, _ := store.Get(r, "SESSION_ID")
+
+	author := session.Values["Id"].(int)
+
+	_, err = connection.Conn.Exec(context.Background(), "INSERT INTO tb_blog(title, content, images, author_id) VALUES ($1,$2,$3,$4)", title, content, image, author)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("message : " + err.Error()))
@@ -245,7 +257,7 @@ func deleteBlog(w http.ResponseWriter, r *http.Request) {
 
 	id, _ := strconv.Atoi(mux.Vars(r)["id"])
 
-	_, err := connection.Conn.Exec(context.Background(), "DELETE FROM blog WHERE id=$1", id)
+	_, err := connection.Conn.Exec(context.Background(), "DELETE FROM tb_blog WHERE id=$1", id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("message : " + err.Error()))
@@ -305,7 +317,7 @@ func register(w http.ResponseWriter, r *http.Request) {
 	password := r.PostForm.Get("password")
 	passwordHash, _ := bcrypt.GenerateFromPassword([]byte(password), 10)
 
-	_, err = connection.Conn.Exec(context.Background(), "INSERT INTO users(name, email,password) VALUES ($1,$2,$3)", name, email, passwordHash)
+	_, err = connection.Conn.Exec(context.Background(), "INSERT INTO tb_user(name, email, password) VALUES ($1,$2,$3)", name, email, passwordHash)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("message : " + err.Error()))
@@ -367,7 +379,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	user := User{}
 
-	err = connection.Conn.QueryRow(context.Background(), "SELECT * FROM users WHERE email=$1", email).Scan(
+	err = connection.Conn.QueryRow(context.Background(), "SELECT * FROM tb_user WHERE email=$1", email).Scan(
 		&user.Id, &user.Name, &user.Email, &user.Password,
 	)
 	if err != nil {
@@ -385,6 +397,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	session.Values["IsLogin"] = true
 	session.Values["Name"] = user.Name
+	session.Values["Id"] = user.Id
 	session.Options.MaxAge = 10800 // 3 hours
 
 	session.AddFlash("succesfull login", "message")
